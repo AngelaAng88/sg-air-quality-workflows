@@ -1,0 +1,45 @@
+services:
+  airflow-init:
+    image: apache/airflow:2.8.1
+    container_name: airflow-init
+    environment:
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
+    volumes:
+      - airflow-db:/opt/airflow
+    command: >
+      bash -c "
+      airflow db migrate &&
+      airflow users create --username ${AIRFLOW_ADMIN_USERNAME} --password ${AIRFLOW_ADMIN_PASSWORD} --role Admin --email ${AIRFLOW_ADMIN_EMAIL} --firstname Admin --lastname User || true
+      "
+  airflow:
+    image: apache/airflow:2.8.1
+    container_name: airflow
+    restart: always
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__EXECUTOR: "SequentialExecutor"
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
+      AIRFLOW__CORE__DAGS_FOLDER: "/opt/airflow/dags"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "False"
+      GOOGLE_APPLICATION_CREDENTIALS: "/opt/airflow/gcp-service-account.json"
+    volumes:
+      - airflow-db:/opt/airflow
+      - ./dags:/opt/airflow/dags                                          # DAGs (this repo)
+      - ${ETL_PROJECT_PATH}:/opt/airflow/sg-air-quality-etl               # ETL package
+      - ${ETL_PROJECT_PATH}/gcp-service-account.json:/opt/airflow/gcp-service-account.json
+      - ./logs:/opt/airflow/logs
+      - ${ETL_PROJECT_PATH}/data:/opt/airflow/data                        # ETL output data
+    ports:
+      - "8080:8080"
+    command: >
+      bash -c "
+      pip install -e /opt/airflow/sg-air-quality-etl &&
+      airflow scheduler &
+      airflow webserver --port 8080 --host 0.0.0.0
+      "
+
+volumes:
+  airflow-db:
